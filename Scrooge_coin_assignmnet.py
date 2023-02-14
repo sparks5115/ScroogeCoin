@@ -1,5 +1,5 @@
 import binascii
-import base58
+# import base58
 import hashlib
 import json
 from fastecdsa import ecdsa, keys, curve, point
@@ -23,7 +23,7 @@ class ScroogeCoin(object):
         tx = {
             "sender" : -1, # TODO is this correct?
             # coins that are created do not come from anywhere
-            "location": {"block": -1, "tx": -1},
+            "location": {"block": -1, "tx": -1}, 
             "receivers" : receivers,
         }
         tx["hash"] = self.hash(tx)
@@ -39,7 +39,7 @@ class ScroogeCoin(object):
         # We must make sure that the Dictionary is Ordered, or we'll have inconsistent hashes
         # use json.dumps().encode() and specify the corrent parameters
         # use hashlib to hash the output of json.dumps()
-        dump = json.dumps(blob, sort_keys=True, skipkeys=True)
+        dump = json.dumps(blob, sort_keys=True)
         return hashlib.sha256(dump.encode('utf-8')).hexdigest()
 
     def sign(self, hash_):
@@ -187,22 +187,13 @@ class User(object):
         return tx
     
 def createKeyPair():
-    ecdsaPrivateKey = keys.gen_private_key(curve.P256)
-    ecdsaPublicKey = keys.get_public_key(ecdsaPrivateKey, curve.P256)
-    return ecdsaPrivateKey, ecdsaPublicKey
+    return keys.gen_keypair(curve.secp256k1) #THIS IS CORRECT
+
 
     
 def createAddress(ecdsaPublicKey):
-    hash256FromECDSAPublicKey = hashlib.sha256((str(ecdsaPublicKey.x) + str(ecdsaPublicKey.y)).encode('utf-8')).hexdigest()
-    # ridemp160FromHash256 = hashlib.new('ripemd160', binascii.unhexlify(hash256FromECDSAPublicKey))
-    prependNetworkByte = '00' + hashlib.sha256(binascii.unhexlify(hash256FromECDSAPublicKey)).hexdigest() # this should have been ripemd first
-    hash = prependNetworkByte
-    for x in range(1,3):
-        hash = hashlib.sha256(binascii.unhexlify(hash)).hexdigest()
-    cheksum = hash[:8]
-    appendChecksum = prependNetworkByte + cheksum
-    address = base58.b58encode(binascii.unhexlify(appendChecksum))
-    return str(address)
+    return hashlib.sha256(hex(ecdsaPublicKey.x << 256 | ecdsaPublicKey.y).encode()).hexdigest() #THIS IS CORRECT
+
 
 def main():
 
