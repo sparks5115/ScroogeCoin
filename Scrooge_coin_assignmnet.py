@@ -4,15 +4,14 @@ import hashlib
 import json
 from fastecdsa import ecdsa, keys, curve, point
 
+
 class ScroogeCoin(object):
     def __init__(self):
         self.private_key, self.public_key = createKeyPair()
-        print("Private Key: ", self.private_key)
-        print("Public Key: ", self.public_key)
-        
+
         self.address = createAddress(self.public_key)
-        self.chain = [] # list of all the blocks
-        self.current_transactions = [] # list of all the current transactions
+        self.chain = []  # list of all the blocks
+        self.current_transactions = []  # list of all the current transactions
 
     def create_coins(self, receivers: dict):
         """
@@ -21,10 +20,10 @@ class ScroogeCoin(object):
         """
 
         tx = {
-            "sender" : -1, # TODO is this correct?
+            "sender": -1,  # TODO is this correct?
             # coins that are created do not come from anywhere
-            "location": {"block": -1, "tx": -1}, 
-            "receivers" : receivers,
+            "location": {"block": -1, "tx": -1},
+            "receivers": receivers,
         }
         tx["hash"] = self.hash(tx)
         tx["signature"] = self.sign(tx["hash"])
@@ -58,8 +57,9 @@ class ScroogeCoin(object):
             tx_index = 0
             for old_tx in block["transactions"]:
                 for funded, amount in old_tx["receivers"].items():
-                    if(address == funded):
-                        funded_transactions.append({"block":block["index"], "tx":tx_index, "amount":amount})
+                    if (address == funded):
+                        funded_transactions.append(
+                            {"block": block["index"], "tx": tx_index, "amount": amount})
                 tx_index += 1
 
         return funded_transactions
@@ -80,11 +80,12 @@ class ScroogeCoin(object):
 
         :return: if tx is valid return tx
         """
-        is_correct_hash = tx["hash"] == self.hash(tx) #TODO hash of just some parts?
-        is_signed = ecdsa.verify(tx["signature"], tx["hash"], public_key, curve.secp256k1)
-        is_funded = True # TODO
-        is_all_spent = True #TODO
-        consumed_previous = True #TODO
+        is_correct_hash = True  # TODO
+        is_signed = ecdsa.verify(
+            tx["signature"], tx["hash"], public_key, curve.secp256k1)  # TODO
+        is_funded = True  # TODO
+        is_all_spent = True  # TODO
+        consumed_previous = True  # TODO
 
         if (is_correct_hash and is_signed and is_funded and is_all_spent and not consumed_previous):
             return True
@@ -97,14 +98,13 @@ class ScroogeCoin(object):
             print("consumed_previous: ", consumed_previous)
             return False
 
-
     def mine(self):
         """
         mines a new block onto the chain
         """
 
         block = {
-            'previous_hash': hash(self.chain[-1] if len(self.chain)>0 else 0),
+            'previous_hash': hash(self.chain[-1] if len(self.chain) > 0 else 0),
             'index': len(self.chain),
             'transactions': self.current_transactions,
         }
@@ -131,7 +131,7 @@ class ScroogeCoin(object):
 
         :return: True if the tx is added to current_transactions
         """
-        if(self.validate_tx(tx, public_key)):
+        if (self.validate_tx(tx, public_key)):
             self.current_transactions.append(tx)
             return True
         else:
@@ -148,6 +148,7 @@ class ScroogeCoin(object):
         prints out a single formated block
         :param block_num: index of the block to be printed
         """
+
 
 class User(object):
     def __init__(self, Scrooge):
@@ -167,7 +168,7 @@ class User(object):
 
     def sign(self, hash_):
         return ecdsa.sign(hash_, self.private_key, curve.secp256k1)
-    
+
     def send_tx(self, receivers, previous_tx_locations):
         """
         creates a TX to be sent
@@ -176,35 +177,36 @@ class User(object):
         """
 
         tx = {
-                "sender" : self.address,
-                "locations" : previous_tx_locations,
-                "receivers" : receivers
-            }
+            "sender": self.address,
+            "locations": previous_tx_locations,
+            "receivers": receivers
+        }
 
         tx["hash"] = self.hash(tx)
         tx["signature"] = self.sign(tx["hash"])
 
         return tx
-    
+
+
 def createKeyPair():
-    return keys.gen_keypair(curve.secp256k1) #THIS IS CORRECT
+    return keys.gen_keypair(curve.secp256k1)  # THIS IS CORRECT
 
 
-    
 def createAddress(ecdsaPublicKey):
-    return hashlib.sha256(hex(ecdsaPublicKey.x << 256 | ecdsaPublicKey.y).encode()).hexdigest() #THIS IS CORRECT
+    # THIS IS CORRECT
+    return hashlib.sha256(hex(ecdsaPublicKey.x << 256 | ecdsaPublicKey.y).encode()).hexdigest()
 
 
 def main():
 
     # dict - defined using {key:value, key:value, ...} or dict[key] = value
-        # they are used in this code for blocks, transactions, and receivers
-        # can be interated through using dict.items()
-        # https://docs.python.org/3/tutorial/datastructures.html#dictionaries
+    # they are used in this code for blocks, transactions, and receivers
+    # can be interated through using dict.items()
+    # https://docs.python.org/3/tutorial/datastructures.html#dictionaries
 
     # lists -defined using [item, item, item] or list.append(item) as well as other ways
-        # used to hold lists of blocks aka the blockchain
-        # https://docs.python.org/3/tutorial/datastructures.html#more-on-lists
+    # used to hold lists of blocks aka the blockchain
+    # https://docs.python.org/3/tutorial/datastructures.html#more-on-lists
 
     # fastecdsa - https://pypi.org/project/fastecdsa/
     # hashlib - https://docs.python.org/3/library/hashlib.html
@@ -213,15 +215,18 @@ def main():
     # Example of how the code will be run
     Scrooge = ScroogeCoin()
     users = [User(Scrooge) for i in range(10)]
-    Scrooge.create_coins({users[0].address:10, users[1].address:20, users[3].address:50})
+    Scrooge.create_coins(
+        {users[0].address: 10, users[1].address: 20, users[3].address: 50})
     Scrooge.mine()
 
     user_0_tx_locations = Scrooge.get_user_tx_positions(users[0].address)
-    first_tx = users[0].send_tx({users[1].address: 2, users[0].address:8}, user_0_tx_locations)
+    first_tx = users[0].send_tx(
+        {users[1].address: 2, users[0].address: 8}, user_0_tx_locations)
     Scrooge.add_tx(first_tx, users[0].public_key)
     Scrooge.mine()
 
-    second_tx = users[1].send_tx({users[0].address:20}, Scrooge.get_user_tx_positions(users[1].address))
+    second_tx = users[1].send_tx(
+        {users[0].address: 20}, Scrooge.get_user_tx_positions(users[1].address))
     Scrooge.add_tx(second_tx, users[1].public_key)
     Scrooge.mine()
 
@@ -230,6 +235,68 @@ def main():
 
     Scrooge.show_user_balance(users[0].address)
 
+# tests
+
+
+def tests():
+    test_keygen()
+    test_create_coins()
+    test_hash()
+    test_sign()
+    test_add_tx()
+    test_send_tx()
+
+
+def test_keygen():
+    private_key, public_key = createKeyPair()
+    assert private_key != None
+    assert public_key.x != None
+    assert public_key.y != None
+    address = createAddress(public_key)
+    assert address != None
+
+
+def test_create_coins():
+    temp = 1
+
+
+def test_hash():
+    message = "hello world"
+    message2 = "hello world2"
+    hash = hashlib.sha256(message.encode("utf-8")).hexdigest()
+    hash2 = hashlib.sha256(message2.encode("utf-8")).hexdigest()
+    hash3 = hashlib.sha256(message.encode("utf-8")).hexdigest()
+    assert hash != None
+    assert hash2 != None
+    assert hash3 == hash
+    assert hash != hash2
+
+
+def test_sign():
+    message = "hello world"
+    hash = hashlib.sha256(message.encode("utf-8")).hexdigest()
+    # test sign for scrooge
+    scrooge = ScroogeCoin()
+    scroogeSignedHash = scrooge.sign(hash)
+    assert scroogeSignedHash != None
+    assert ecdsa.verify(scroogeSignedHash, hash,
+                        scrooge.public_key, curve.secp256k1)
+
+    # test sign for user
+    user = User(scrooge)
+    userSignedHash = user.sign(hash)
+    assert userSignedHash != None
+    assert ecdsa.verify(userSignedHash, hash, user.public_key, curve.secp256k1)
+
+
+def test_add_tx():
+    temp = 1
+
+
+def test_send_tx():
+    temp = 1
+
 
 if __name__ == '__main__':
-   main()
+    tests()
+    # main()
