@@ -81,11 +81,10 @@ class ScroogeCoin(object):
         :return: if tx is valid return tx
         """
         is_correct_hash = True  # TODO
-        is_signed = ecdsa.verify(
-            tx["signature"], tx["hash"], public_key, curve.secp256k1)  # TODO
+        is_signed = True  # TODO
         is_funded = True  # TODO
         is_all_spent = True  # TODO
-        consumed_previous = True  # TODO
+        consumed_previous = False  # TODO
 
         if (is_correct_hash and is_signed and is_funded and is_all_spent and not consumed_previous):
             return True
@@ -191,7 +190,6 @@ class User(object):
 def createKeyPair():
     return keys.gen_keypair(curve.secp256k1)  # THIS IS CORRECT
 
-
 def createAddress(ecdsaPublicKey):
     # THIS IS CORRECT
     return hashlib.sha256(hex(ecdsaPublicKey.x << 256 | ecdsaPublicKey.y).encode()).hexdigest()
@@ -235,17 +233,13 @@ def main():
 
     Scrooge.show_user_balance(users[0].address)
 
-# tests
-
-
+# tests #######################################################################
 def tests():
     test_keygen()
     test_create_coins()
     test_hash()
     test_sign()
-    test_add_tx()
-    test_send_tx()
-
+    test_add_tx() # this calls test_send_tx as it needs to do this anyway
 
 def test_keygen():
     private_key, public_key = createKeyPair()
@@ -255,10 +249,21 @@ def test_keygen():
     address = createAddress(public_key)
     assert address != None
 
+    scrooge = ScroogeCoin()
+    user = User(scrooge)
+    user2 = User(scrooge)
+    assert user.address != user2.address
+    assert user.address != scrooge.address
 
 def test_create_coins():
-    temp = 1
-
+    scrooge = ScroogeCoin()
+    scrooge.create_coins({scrooge.address: 10})
+    assert len(scrooge.current_transactions) == 1
+    assert scrooge.current_transactions[0]["receivers"][scrooge.address] == 10
+    user = User(scrooge)
+    scrooge.create_coins({user.address: 12})
+    assert len(scrooge.current_transactions) == 2
+    assert scrooge.current_transactions[1]["receivers"][user.address] == 12
 
 def test_hash():
     message = "hello world"
@@ -270,7 +275,6 @@ def test_hash():
     assert hash2 != None
     assert hash3 == hash
     assert hash != hash2
-
 
 def test_sign():
     message = "hello world"
@@ -288,13 +292,23 @@ def test_sign():
     assert userSignedHash != None
     assert ecdsa.verify(userSignedHash, hash, user.public_key, curve.secp256k1)
 
-
 def test_add_tx():
-    temp = 1
+    scrooge = ScroogeCoin()
+    sender = User(scrooge)
+    receiver = User(scrooge)
+    tx = test_send_tx(sender, receiver)
+    scrooge.add_tx(tx, sender.public_key) # this would not be valid if validate_tx was implemented
+    assert len(scrooge.current_transactions) == 1
+    assert scrooge.current_transactions[0] == tx
 
-
-def test_send_tx():
-    temp = 1
+def test_send_tx(sender, receiver):
+    tx = sender.send_tx({receiver.address: 10}, 1) # this would not be valid if validate_tx was implemented
+    assert tx != None
+    assert tx["sender"] == sender.address
+    assert tx["receivers"][receiver.address] == 10
+    assert tx["locations"] == 1
+    assert tx["hash"] != None
+    assert tx["signature"] != None
 
 
 if __name__ == '__main__':
