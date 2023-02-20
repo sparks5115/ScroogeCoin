@@ -1,5 +1,3 @@
-import binascii
-# import base58
 import hashlib
 import json
 from fastecdsa import ecdsa, keys, curve, point
@@ -233,7 +231,7 @@ def main():
 
     Scrooge.show_user_balance(users[0].address)
 
-# tests #######################################################################
+##################### tests ######################################
 def tests():
     test_keygen()
     test_create_coins()
