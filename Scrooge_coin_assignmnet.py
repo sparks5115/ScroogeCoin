@@ -78,13 +78,14 @@ class ScroogeCoin(object):
 
         :return: if tx is valid return tx
         """
-        is_correct_hash = True  # TODO
-        is_signed = True  # TODO
+        is_correct_hash = self.hash(tx) == tx["hash"]
+        is_signed = ecdsa.verify(tx["signature"], tx["hash"], public_key, curve.secp256k1)
         is_funded = True  # TODO
-        is_all_spent = True  # TODO
+        is_all_spent = 
         consumed_previous = False  # TODO
 
         if (is_correct_hash and is_signed and is_funded and is_all_spent and not consumed_previous):
+            self.add_tx(tx, public_key)
             return True
         else:
             print("Transaction is invalid")
@@ -95,11 +96,10 @@ class ScroogeCoin(object):
             print("consumed_previous: ", consumed_previous)
             return False
 
-    def mine(self):
+    def mine(self): # TODO make sure this works if there are no transactions
         """
         mines a new block onto the chain
         """
-
         block = {
             'previous_hash': hash(self.chain[-1] if len(self.chain) > 0 else 0),
             'index': len(self.chain),
@@ -108,6 +108,11 @@ class ScroogeCoin(object):
         # hash and sign the block
         block["hash"] = self.hash(block)
         block["signature"] = self.sign(block["hash"])
+
+        # reset the current list of transactions
+        self.current_transactions = []
+
+        self.chain.append(block)
 
         return block
 
@@ -139,12 +144,36 @@ class ScroogeCoin(object):
         prints balance of address
         :param address: User.address
         """
+        balance = 0
+        for block in self.chain:
+            for tx in block["transactions"]:
+                if (address in tx["receivers"]):
+                    balance += tx["receivers"][address]
+                if (address == tx["sender"]):
+                    balance -= tx["amount"]
+
+        print("Balance of ", address, ": ", balance)
 
     def show_block(self, block_num):
         """
         prints out a single formated block
         :param block_num: index of the block to be printed
         """
+
+        block = self.chain[block_num]
+
+        print("Block ", block_num, ":")
+        print("Previous Hash: ", block["previous_hash"])
+        print("Hash: ", block["hash"])
+        print("Signature: ", block["signature"])
+        print("############# START TRANSACTIONS #############")
+        for tx in block["transactions"]:
+            print("Sender: ", tx["sender"])
+            print("Locations: ", tx["locations"])
+            print("Receivers: ", tx["receivers"])
+            print("Hash: ", tx["hash"])
+            print("Signature: ", tx["signature"])
+            print("############# END TRANSACTION #############")
 
 
 class User(object):
