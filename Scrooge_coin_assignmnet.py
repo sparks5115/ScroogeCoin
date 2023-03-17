@@ -105,16 +105,15 @@ class ScroogeCoin(object):
             #the desctription implies that these should be two seperate checks, but this is not how the main() function works... we do not keep track of coins and each user inputs their entire transaction history in the transaction
             #Instead I did a balance based approach which probably has some issues, but unlike the described situation allows for condensing coins (if i recieve 5 payments of 1 coin, I can pay 5 coins to someone else)
             is_funded = True
-            consumed_previous = False
 
-        if (is_correct_hash and is_signed and is_funded and not consumed_previous):
+        if (is_correct_hash and is_signed and is_funded):
             return True
         else:
             print("Transaction is invalid")
             print("is_correct_hash: ", is_correct_hash)
             print("is_signed: ", is_signed)
             print("is_funded: ", is_funded)
-            print("consumed_previous: ", consumed_previous)
+            print()
             return False
 
     def mine(self):
@@ -295,15 +294,43 @@ def tests():
     #Mine a valid transaction that consumes coins from a previous block
     Scrooge = ScroogeCoin()
     users = [User(Scrooge) for i in range(10)]
+
+    #print the balance of users 0, 1, and 3
+    Scrooge.show_user_balance(users[0].address)
+    Scrooge.show_user_balance(users[1].address)
+    Scrooge.show_user_balance(users[3].address)
+
+    print("Creating coins for users 0, 1, and 3...")
     Scrooge.create_coins(
         {users[0].address: 10, users[1].address: 20, users[3].address: 50})
     Scrooge.mine()
 
+    #print the balance of users 0, 1, and 3 again
+    Scrooge.show_user_balance(users[0].address)
+    Scrooge.show_user_balance(users[1].address)
+    Scrooge.show_user_balance(users[3].address)
+
+    print("user 0 sending 2 coins to user 1 and 8 coins to himself")
     user_0_tx_locations = Scrooge.get_user_tx_positions(users[0].address)
     first_tx = users[0].send_tx(
         {users[1].address: 2, users[0].address: 8}, user_0_tx_locations)
     Scrooge.add_tx(first_tx, users[0].public_key)
     Scrooge.mine()
+    
+    #print the balance of users 0, 1, and 3 again
+    Scrooge.show_user_balance(users[0].address)
+    Scrooge.show_user_balance(users[1].address)
+    Scrooge.show_user_balance(users[3].address)
+
+    print("\n\n")
+    Scrooge.show_block(1)
+
+    print("\n\n")
+    print("invalid transactions")
+    print("user 1 sending 200 coins to user 0")
+    second_tx = users[1].send_tx(
+        {users[0].address: 200}, Scrooge.get_user_tx_positions(users[1].address))
+    Scrooge.add_tx(second_tx, users[1].public_key)
 
 if __name__ == '__main__':
     #main()
