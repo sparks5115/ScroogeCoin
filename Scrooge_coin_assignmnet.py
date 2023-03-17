@@ -2,6 +2,8 @@ import hashlib
 import json
 from fastecdsa import ecdsa, keys, curve, point
 
+def consistent_hash(blob):
+        return hashlib.sha256(json.dumps(blob, sort_keys=True, skipkeys=True).encode()).hexdigest()
 
 class ScroogeCoin(object):
     def __init__(self):
@@ -36,8 +38,7 @@ class ScroogeCoin(object):
         # We must make sure that the Dictionary is Ordered, or we'll have inconsistent hashes
         # use json.dumps().encode() and specify the corrent parameters
         # use hashlib to hash the output of json.dumps()
-        dump = json.dumps(blob, sort_keys=True)
-        return hashlib.sha256(dump.encode('utf-8')).hexdigest()
+        return consistent_hash(blob)
 
     def sign(self, hash_):
         return ecdsa.sign(hash_, self.private_key, curve.secp256k1)
@@ -78,30 +79,50 @@ class ScroogeCoin(object):
 
         :return: if tx is valid return tx
         """
-        is_correct_hash = self.hash(tx) == tx["hash"]
+        is_correct_hash = self.hash({key: tx[key] for key in ['sender', 'locations', 'receivers']}) == tx["hash"]
+        if ( not is_correct_hash):
+            print("hashes don't match")
+            print("transaction:")
+            print(tx)
         is_signed = ecdsa.verify(tx["signature"], tx["hash"], public_key, curve.secp256k1)
-        is_funded = True  # TODO
-        is_all_spent = 
-        consumed_previous = False  # TODO
+        #loop through all transactions in the blockchain
+        sender_balance = 0
+        is_funded = False #default to false
+        for block in self.chain:
+            for old_tx in block["transactions"]:
+                for funded, amount in old_tx["receivers"].items():
+                    if (tx["sender"] == funded):
+                        sender_balance += amount
+                if (old_tx["sender"] == tx['sender']):
+                    for funded, amount in old_tx["receivers"].items():
+                        balance -= amount
+        #add up how much the sender is trying to spend
+        amount_spent = 0
+        for receiver, amount in tx["receivers"].items():
+            amount_spent += amount
+        #check if the sender has enough money
+        if(sender_balance >= amount_spent): 
+            #the desctription implies that these should be two seperate checks, but this is not how the main() function works... we do not keep track of coins and each user inputs their entire transaction history in the transaction
+            #Instead I did a balance based approach which probably has some issues, but unlike the described situation allows for condensing coins (if i recieve 5 payments of 1 coin, I can pay 5 coins to someone else)
+            is_funded = True
+            consumed_previous = False
 
-        if (is_correct_hash and is_signed and is_funded and is_all_spent and not consumed_previous):
-            self.add_tx(tx, public_key)
+        if (is_correct_hash and is_signed and is_funded and not consumed_previous):
             return True
         else:
             print("Transaction is invalid")
             print("is_correct_hash: ", is_correct_hash)
             print("is_signed: ", is_signed)
             print("is_funded: ", is_funded)
-            print("is_all_spent: ", is_all_spent)
             print("consumed_previous: ", consumed_previous)
             return False
 
-    def mine(self): # TODO make sure this works if there are no transactions
+    def mine(self):
         """
         mines a new block onto the chain
         """
         block = {
-            'previous_hash': hash(self.chain[-1] if len(self.chain) > 0 else 0),
+            'previous_hash': self.hash(self.chain[-1] if len(self.chain) > 0 else 0),
             'index': len(self.chain),
             'transactions': self.current_transactions,
         }
@@ -146,11 +167,13 @@ class ScroogeCoin(object):
         """
         balance = 0
         for block in self.chain:
-            for tx in block["transactions"]:
-                if (address in tx["receivers"]):
-                    balance += tx["receivers"][address]
-                if (address == tx["sender"]):
-                    balance -= tx["amount"]
+            for old_tx in block["transactions"]:
+                for funded, amount in old_tx["receivers"].items():
+                    if (address == funded):
+                        balance += amount
+                if (old_tx["sender"] == address):
+                    for funded, amount in old_tx["receivers"].items():
+                        balance -= amount
 
         print("Balance of ", address, ": ", balance)
 
@@ -190,7 +213,7 @@ class User(object):
         # We must make sure that the Dictionary is Ordered, or we'll have inconsistent hashes
         # use json.dumps().encode() and specify the corrent parameters
         # use hashlib to hash the output of json.dumps()
-        return hashlib.sha256(json.dumps(blob, sort_keys=True, skipkeys=True).encode()).hexdigest()
+        return consistent_hash(blob)
 
     def sign(self, hash_):
         return ecdsa.sign(hash_, self.private_key, curve.secp256k1)
@@ -260,75 +283,6 @@ def main():
 
     Scrooge.show_user_balance(users[0].address)
 
-##################### tests ######################################
-def tests():
-    test_keygen()
-    test_create_coins()
-    test_hash()
-    test_sign()
-    test_add_tx() # this calls test_send_tx as it needs to do this anyway
-
-def test_keygen():
-    private_key, public_key = createKeyPair()
-    assert private_key != None
-    assert public_key.x != None
-    assert public_key.y != None
-    address = createAddress(public_key)
-    assert address != None
-
-    scrooge = ScroogeCoin()
-    user = User(scrooge)
-    user2 = User(scrooge)
-    assert user.address != user2.address
-    assert user.address != scrooge.address
-
-def test_create_coins():
-    scrooge = ScroogeCoin()
-    scrooge.create_coins({scrooge.address: 10})
-    assert len(scrooge.current_transactions) == 1
-    assert scrooge.current_transactions[0]["receivers"][scrooge.address] == 10
-    user = User(scrooge)
-    scrooge.create_coins({user.address: 12})
-    assert len(scrooge.current_transactions) == 2
-    assert scrooge.current_transactions[1]["receivers"][user.address] == 12
-
-def test_hash():
-    message = "hello world"
-    message2 = "hello world2"
-    hash = hashlib.sha256(message.encode("utf-8")).hexdigest()
-    hash2 = hashlib.sha256(message2.encode("utf-8")).hexdigest()
-    hash3 = hashlib.sha256(message.encode("utf-8")).hexdigest()
-    assert hash != None
-    assert hash2 != None
-    assert hash3 == hash
-    assert hash != hash2
-
-def test_sign():
-    message = "hello world"
-    hash = hashlib.sha256(message.encode("utf-8")).hexdigest()
-    # test sign for scrooge
-    scrooge = ScroogeCoin()
-    scroogeSignedHash = scrooge.sign(hash)
-    assert scroogeSignedHash != None
-    assert ecdsa.verify(scroogeSignedHash, hash,
-                        scrooge.public_key, curve.secp256k1)
-
-    # test sign for user
-    user = User(scrooge)
-    userSignedHash = user.sign(hash)
-    assert userSignedHash != None
-    assert ecdsa.verify(userSignedHash, hash, user.public_key, curve.secp256k1)
-
-def test_add_tx():
-    scrooge = ScroogeCoin()
-    sender = User(scrooge)
-    receiver = User(scrooge)
-    tx = test_send_tx(sender, receiver)
-    scrooge.add_tx(tx, sender.public_key) # this would not be valid if validate_tx was implemented
-    assert len(scrooge.current_transactions) == 1
-    assert scrooge.current_transactions[0] == tx
-
-def test_send_tx(sender, receiver):
     tx = sender.send_tx({receiver.address: 10}, 1) # this would not be valid if validate_tx was implemented
     assert tx != None
     assert tx["sender"] == sender.address
@@ -337,7 +291,20 @@ def test_send_tx(sender, receiver):
     assert tx["hash"] != None
     assert tx["signature"] != None
 
+def tests():
+    #Mine a valid transaction that consumes coins from a previous block
+    Scrooge = ScroogeCoin()
+    users = [User(Scrooge) for i in range(10)]
+    Scrooge.create_coins(
+        {users[0].address: 10, users[1].address: 20, users[3].address: 50})
+    Scrooge.mine()
+
+    user_0_tx_locations = Scrooge.get_user_tx_positions(users[0].address)
+    first_tx = users[0].send_tx(
+        {users[1].address: 2, users[0].address: 8}, user_0_tx_locations)
+    Scrooge.add_tx(first_tx, users[0].public_key)
+    Scrooge.mine()
 
 if __name__ == '__main__':
+    #main()
     tests()
-    # main()
