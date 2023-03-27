@@ -12,6 +12,7 @@ class ScroogeCoin(object):
         self.address = createAddress(self.public_key)
         self.chain = []  # list of all the blocks
         self.current_transactions = []  # list of all the current transactions
+        self.users = []
 
     def create_coins(self, receivers: dict):
         """
@@ -22,7 +23,7 @@ class ScroogeCoin(object):
         tx = {
             "sender": -1,  # TODO is this correct?
             # coins that are created do not come from anywhere
-            "location": {"block": -1, "tx": -1},
+            "locations": [{"block": -1, "tx": -1}],
             "receivers": receivers,
         }
         tx["hash"] = self.hash(tx)
@@ -45,7 +46,6 @@ class ScroogeCoin(object):
 
     def get_user_tx_positions(self, address):
         """
-        Scrooge adds value to some coins
         :param address: User.address
         :return: list of all transactions where address is funded
         [{"block":block_num, "tx":tx_num, "amount":amount}, ...]
@@ -63,6 +63,36 @@ class ScroogeCoin(object):
 
         return funded_transactions
 
+    #this decides which transactions to spend. It will simply select the oldest transactions until it has enough coins to spend
+    def select_coins_to_spend(self, address, amount):
+        """
+        :param amount: amount of coins to be selected
+        :param address: User.address
+        :return: list of locations of transactions that fund the acount
+        """
+        funded_transactions = self.get_user_tx_positions(address)
+
+        #go through the chain and remove transactions that have been spent
+        for block in self.chain:
+            for tx in block["transactions"]:
+                if (tx["sender"] == address): #if the sender of this transaction is the account we are spending
+                    for location in tx["locations"]:
+                        for funded_transaction in funded_transactions: 
+                            if (funded_transaction["block"] == location["block"] and funded_transaction["tx"] == location["tx"]):
+                                funded_transactions.remove(funded_transaction)
+
+
+        selected_transactions = []
+        selected_amount = 0
+        for tx in funded_transactions:
+            selected_transactions.append(tx)
+            selected_amount += tx["amount"]
+            if (selected_amount >= amount):
+                return selected_transactions
+
+        return None #if we get here, we don't have enough coins to spend
+
+
     def validate_tx(self, tx, public_key):
         """
         validates a single transaction
@@ -79,42 +109,67 @@ class ScroogeCoin(object):
 
         :return: if tx is valid return tx
         """
-        is_correct_hash = self.hash({key: tx[key] for key in ['sender', 'locations', 'receivers']}) == tx["hash"]
-        if ( not is_correct_hash):
-            print("hashes don't match")
-            print("transaction:")
-            print(tx)
-        is_signed = ecdsa.verify(tx["signature"], tx["hash"], public_key, curve.secp256k1)
-        #loop through all transactions in the blockchain
-        sender_balance = 0
-        is_funded = False #default to false
-        for block in self.chain:
-            for old_tx in block["transactions"]:
-                for funded, amount in old_tx["receivers"].items():
-                    if (tx["sender"] == funded):
-                        sender_balance += amount
-                if (old_tx["sender"] == tx['sender']):
-                    for funded, amount in old_tx["receivers"].items():
-                        balance -= amount
-        #add up how much the sender is trying to spend
-        amount_spent = 0
-        for receiver, amount in tx["receivers"].items():
-            amount_spent += amount
-        #check if the sender has enough money
-        if(sender_balance >= amount_spent): 
-            #the desctription implies that these should be two seperate checks, but this is not how the main() function works... we do not keep track of coins and each user inputs their entire transaction history in the transaction
-            #Instead I did a balance based approach which probably has some issues, but unlike the described situation allows for condensing coins (if i recieve 5 payments of 1 coin, I can pay 5 coins to someone else)
-            is_funded = True
-
-        if (is_correct_hash and is_signed and is_funded):
-            return True
-        else:
-            print("Transaction is invalid")
-            print("is_correct_hash: ", is_correct_hash)
-            print("is_signed: ", is_signed)
-            print("is_funded: ", is_funded)
-            print()
+        #check that the hash is correct
+        if( self.hash({key: tx[key] for key in ['sender', 'locations', 'receivers']}) != tx["hash"]): #we only hash the fields that were hashed when the transaction was created
+            error("hashes don't match")
+            # print("transaction:")
+            # print(tx)
             return False
+        
+        #check that the signature is correct
+        if(not ecdsa.verify(tx["signature"], tx["hash"], public_key, curve.secp256k1)):
+            error("invalid signature")
+            # print("transaction:")
+            # print(tx)
+            return False
+
+        #The consumed coins are valid, that is the coins are created in previous transactions
+        #check that the transaction outputs are actually on the blockchain
+        for location in tx["locations"]:
+            #if the location is on the blockchain and the transaction number is valid in this block
+            if (location["block"] >= len(self.chain) or location["tx"] >= len(self.chain[location["block"]]["transactions"])):
+                error("Transaction not on blockchain")
+                # print("transaction:")
+                # print(tx)
+                return False #this should never happen as Scrooge is the one who decides which transactions to spend in this model
+            
+            #check that the sender of the transaction receives the amount of coins that they claim come from this transaction
+            if (self.chain[location["block"]]["transactions"][location["tx"]]["receivers"][tx["sender"]] != location["amount"]):
+                error("invalid UTXO")
+                # print("transaction:")
+                # print(tx)
+                return False #this should never happen as Scrooge is the one who decides which transactions to spend in this model
+
+
+
+        #The consumed coins were not already consumed in some previous transaction
+        #loop through all transactions after the ones that are being spent
+        for location in tx["locations"]:
+            for block in self.chain[location["block"]:]:
+                for transaction in block['transactions']:
+                    if (transaction["sender"] == tx["sender"]): #if the sender of this transaction is the account we are spending
+                        for transaction_location in transaction["locations"]:
+                            if (transaction_location["block"] == location["block"] and transaction_location["tx"] == location["tx"]):
+                                error("double spend")
+                                # print("transaction:")
+                                # print(tx)
+                                return False #this should never happen as Scrooge is the one who decides which transactions to spend in this model
+                
+
+        #The total value of the coins that come out of this transaction is equal to the total value of the coins that went in
+        value_in = 0
+        value_out = 0
+        for location in tx["locations"]:
+            value_in += location["amount"]
+        for receiver, amount in tx["receivers"].items():
+            value_out += amount
+        if (value_in != value_out):
+            error(f"value in({value_in}) != value out({value_out})")
+            return False
+        
+        
+        return True #the transaction is valid
+
 
     def mine(self):
         """
@@ -196,6 +251,31 @@ class ScroogeCoin(object):
             print("Hash: ", tx["hash"])
             print("Signature: ", tx["signature"])
             print("############# END TRANSACTION #############")
+    
+
+    def make_transaction(self, sender_index, receiver_index, amount):
+        """
+        makes a simple transaction from sender to receiver (does not work for multiple receivers or senders, but does send change back to sender)
+        :param sender_index: index of the sender in self.users
+        :param receiver_index: index of the receiver in self.users
+        :param amount: amount of coins to send
+        """
+
+        sender = self.users[sender_index]
+        receiver = self.users[receiver_index]
+        coins_to_spend = self.select_coins_to_spend(sender.address, amount)
+        
+        if coins_to_spend is not None:
+            total_coins = sum([coin['amount'] for coin in coins_to_spend])
+            change = total_coins - amount
+            tx = sender.send_tx({receiver.address: amount, sender.address: change}, coins_to_spend)
+            self.add_tx(tx, sender.public_key)
+            print(f"user {sender_index} sent {amount} coins to user {receiver_index} and got {change} coins back\n")
+        else:
+            error(f"user {sender_index} does not have enough coins to spend\n")
+
+def error(msg):
+    print("ERROR: " + msg + "\n")
 
 
 class User(object):
@@ -243,57 +323,11 @@ def createAddress(ecdsaPublicKey):
     # THIS IS CORRECT
     return hashlib.sha256(hex(ecdsaPublicKey.x << 256 | ecdsaPublicKey.y).encode()).hexdigest()
 
-
-def main():
-
-    # dict - defined using {key:value, key:value, ...} or dict[key] = value
-    # they are used in this code for blocks, transactions, and receivers
-    # can be interated through using dict.items()
-    # https://docs.python.org/3/tutorial/datastructures.html#dictionaries
-
-    # lists -defined using [item, item, item] or list.append(item) as well as other ways
-    # used to hold lists of blocks aka the blockchain
-    # https://docs.python.org/3/tutorial/datastructures.html#more-on-lists
-
-    # fastecdsa - https://pypi.org/project/fastecdsa/
-    # hashlib - https://docs.python.org/3/library/hashlib.html
-    # json - https://docs.python.org/3/library/json.html
-
-    # Example of how the code will be run
-    Scrooge = ScroogeCoin()
-    users = [User(Scrooge) for i in range(10)]
-    Scrooge.create_coins(
-        {users[0].address: 10, users[1].address: 20, users[3].address: 50})
-    Scrooge.mine()
-
-    user_0_tx_locations = Scrooge.get_user_tx_positions(users[0].address)
-    first_tx = users[0].send_tx(
-        {users[1].address: 2, users[0].address: 8}, user_0_tx_locations)
-    Scrooge.add_tx(first_tx, users[0].public_key)
-    Scrooge.mine()
-
-    second_tx = users[1].send_tx(
-        {users[0].address: 20}, Scrooge.get_user_tx_positions(users[1].address))
-    Scrooge.add_tx(second_tx, users[1].public_key)
-    Scrooge.mine()
-
-    Scrooge.get_user_tx_positions(users[1].address)
-    Scrooge.get_user_tx_positions(users[0].address)
-
-    Scrooge.show_user_balance(users[0].address)
-
-    tx = sender.send_tx({receiver.address: 10}, 1) # this would not be valid if validate_tx was implemented
-    assert tx != None
-    assert tx["sender"] == sender.address
-    assert tx["receivers"][receiver.address] == 10
-    assert tx["locations"] == 1
-    assert tx["hash"] != None
-    assert tx["signature"] != None
-
 def tests():
     #Mine a valid transaction that consumes coins from a previous block
     Scrooge = ScroogeCoin()
-    users = [User(Scrooge) for i in range(10)]
+    Scrooge.users = [User(Scrooge) for i in range(10)]
+    users = Scrooge.users
 
     #print the balance of users 0, 1, and 3
     Scrooge.show_user_balance(users[0].address)
@@ -309,28 +343,77 @@ def tests():
     Scrooge.show_user_balance(users[0].address)
     Scrooge.show_user_balance(users[1].address)
     Scrooge.show_user_balance(users[3].address)
+    print()
 
-    print("user 0 sending 2 coins to user 1 and 8 coins to himself")
-    user_0_tx_locations = Scrooge.get_user_tx_positions(users[0].address)
-    first_tx = users[0].send_tx(
-        {users[1].address: 2, users[0].address: 8}, user_0_tx_locations)
-    Scrooge.add_tx(first_tx, users[0].public_key)
+    Scrooge.make_transaction(0, 1, 2)
     Scrooge.mine()
-    
+
     #print the balance of users 0, 1, and 3 again
     Scrooge.show_user_balance(users[0].address)
     Scrooge.show_user_balance(users[1].address)
     Scrooge.show_user_balance(users[3].address)
+    print()
 
-    print("\n\n")
-    Scrooge.show_block(1)
+    print("time to cause some trouble \n")
 
-    print("\n\n")
-    print("invalid transactions")
-    print("user 1 sending 200 coins to user 0")
-    second_tx = users[1].send_tx(
-        {users[0].address: 200}, Scrooge.get_user_tx_positions(users[1].address))
-    Scrooge.add_tx(second_tx, users[1].public_key)
+    print("try to send more money than a user has")
+    Scrooge.make_transaction(0, 1, 100)
+    #this is caught by scrooge and therefore isnt even considered... we will need to go over scrooges head
+
+    print("sending coins that do not exist")
+    tx_amount = 2
+    coins_to_spend = [{'block': 13, 'tx': 1, 'amount': 12}] #this coin does not exist
+    change = sum([i['amount'] for i in coins_to_spend]) - tx_amount
+    first_tx = users[0].send_tx(
+        {users[1].address: tx_amount, users[0].address: change}, coins_to_spend)
+    Scrooge.add_tx(first_tx, users[0].public_key)
+
+    print("note that this will also not work if we say that the user recieved the wrong amount of coins")
+    coins_to_spend = [{'block': 0, 'tx': 0, 'amount': 12}] #user 0 only recieves 10 coins here
+    change = sum([i['amount'] for i in coins_to_spend]) - tx_amount
+    first_tx = users[0].send_tx(
+        {users[1].address: tx_amount, users[0].address: change}, coins_to_spend)
+    Scrooge.add_tx(first_tx, users[0].public_key)
+
+    print("sending coins that have already been spent")
+    tx_amount = 2
+    coins_to_spend = [{'block': 0, 'tx': 0, 'amount': 10}] #these coins were already spent in the first transaction
+    change = sum([i['amount'] for i in coins_to_spend]) - tx_amount
+    first_tx = users[0].send_tx(
+        {users[1].address: tx_amount, users[0].address: change}, coins_to_spend)
+    Scrooge.add_tx(first_tx, users[0].public_key)
+
+    print("creating coins from a transaction")
+    user_0_coins_to_spend = Scrooge.select_coins_to_spend(users[0].address, 2)
+    first_tx = users[0].send_tx(
+        {users[1].address: tx_amount, users[0].address: 25}, user_0_coins_to_spend)
+    Scrooge.add_tx(first_tx, users[0].public_key)
+
+
+    print("sending coins that have been signed incorrectly")
+    tx_amount = 2
+    user_0_coins_to_spend = Scrooge.select_coins_to_spend(users[0].address, 2)
+    if(user_0_coins_to_spend != None):
+        #find the change by subtracting the amount spent from the amount of coins in user_0_coins_to_spend
+        user_0_change = sum([i['amount'] for i in user_0_coins_to_spend]) - tx_amount
+        first_tx = users[0].send_tx(
+            {users[1].address: tx_amount, users[0].address: user_0_change}, user_0_coins_to_spend)
+        Scrooge.add_tx(first_tx, users[1].public_key) #this should be users[0].public_key
+    else:
+        print("user 0 does not have enough coins to send")
+
+    print("sending coins from two transactions (consolidating coins)")
+    Scrooge.make_transaction(1, 0, 21)
+    Scrooge.mine()
+
+    #print the balance of users 0, 1, and 3 again
+    Scrooge.show_user_balance(users[0].address)
+    Scrooge.show_user_balance(users[1].address)
+    Scrooge.show_user_balance(users[3].address)
+    print()
+
+    Scrooge.show_block(2)
+
 
 if __name__ == '__main__':
     #main()
